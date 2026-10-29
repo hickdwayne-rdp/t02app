@@ -1,67 +1,56 @@
-# Project 2: Design rationale
+# Project 2: Design Rationale
 
-## Base images and multi-stage build
+## Why I chose these images
 
-This project serves a static HTML page. I chose node:24 for the build
-stage because it supplies Node.js and npm for the provided build process.
-The Dockerfile copies package.json and package-lock.json, runs npm ci,
-and then runs npm run build. In this demonstration, the build step copies
-index.html into the build directory.
+For this project, I used `node:24` to build the application and `nginx:alpine` to serve 
+the finished webpage. Node provides the tools needed to run `npm ci` and `npm run build`.
+The build step in this project is simple: it copies `index.html` into the `build` folder.
 
-For the final stage, I chose nginx:alpine because the running application
-only needs a web server to serve the generated HTML. It does not need
-Node.js or npm at runtime. The final stage copies /app/build from the
-build stage into Nginx's HTML directory. Docker's multi-stage documentation
-explains how selectively copying artifacts between stages leaves build
-tools out of the final image [1].
+Once that step is done, the webpage does not need Node.js or npm to run. It only needs a 
+web server. That is why I used `nginx:alpine` for the final stage. The Dockerfile copies
+the finished files from the build stage into Nginx’s HTML folder, leaving the Node build
+tools behind. This follows the multi-stage build approach explained in Docker’s documentation [1].
 
-My T02 measurements, saved in evidence/t02-image-sizes.txt, were:
+I built both versions and recorded these results from the first size column in my Docker output:
 
-| Image | First reported size column |
+| Image | Recorded size |
 | --- | --- |
-| demo:single | 1.65 GB |
-| demo:multi | 93.6 MB |
+| Single-stage (`demo:single`) | 1.65 GB |
+| Multi-stage (`demo:multi`) | 93.6 MB |
 
-Using 1.65 GB = 1,650 MB, the multi-stage image was approximately 17.6
-times smaller, a reduction of about 94.3%. These calculations use rounded
-displayed values from the same column. The evidence also contains a second
-size column, which I did not mix into this comparison.
+Using 1,650 MB for the single-stage image, the multi-stage version was about 94.3% 
+smaller. These are approximate figures because Docker rounds the displayed sizes. My 
+original results are saved in `evidence/t02-image-sizes.txt`.
 
-The single-stage comparison retains the Node environment and installs
-http-server. The multi-stage version instead ships the Nginx runtime and
-built output. These measurements support choosing the smaller runtime
-for this application; they do not prove it is the smallest possible
-image or guarantee its security.
+The single-stage image keeps the full Node environment and adds `http-server`. The 
+multi-stage image uses Nginx and the finished webpage instead. For this small application,
+keeping the build tools in the final image would add size without helping it serve the page.
 
-## Service choices and separation
+## Why I kept Redis separate
 
-The Compose stack separates web serving from the Redis backing-service
-demonstration. The web service builds my Dockerfile, while cache uses
-the prebuilt redis:7-alpine image. Separate containers give each service
-its own process, configuration, and lifecycle, rather than combining
-both programs inside one container.
+I used two services in Compose: `web` for Nginx and `cache` for Redis. Keeping them separate
+means each runs in its own container and can be started, stopped, and checked separately.
+It also keeps the web-server configuration separate from the cache configuration.
 
-This illustrates the course's framing of containers between IaaS and
-PaaS. I control the application image, port mapping, service composition,
-and readiness checks, while accepting maintained base images and a
-prebuilt Redis implementation instead of implementing those components
-myself. The host and container runtime still require management.
+This connects to Week 3’s explanation of containers sitting between IaaS and PaaS. I decide
+how the application is built and how the services work together, but I use existing images
+for the tools underneath it. With `redis:7-alpine`, I am using a ready-made cache service
+instead of writing a cache myself. I still manage the Compose configuration and need a 
+working Docker environment.
 
-Redis has a redis-cli ping healthcheck. The web service uses depends_on
-with condition: service_healthy, so startup waits for Redis readiness,
-as described in Docker's Compose documentation [2].
+The Redis healthcheck runs `redis-cli ping`. Compose waits for Redis to become healthy 
+before starting the web service because I configured `depends_on` with `service_healthy`. 
+Docker’s documentation explains this readiness check [2].
 
-The static webpage does not actually read from or write to Redis. In
-T05, I stopped cache and observed that web remained running and returned
-HTTP 200. This demonstrates startup ordering, not an ongoing application
-dependency or successful recovery from a real cache outage.
+One important limitation is that my static webpage does not actually use Redis. During T05, 
+I stopped Redis and the webpage still returned HTTP `200`. This showed that the configuration 
+controls startup order. It did not show that the webpage depends on Redis while running or 
+that it can recover from a real cache failure.
 
 ## References
 
-[1] Docker: Multi-stage builds.
-https://docs.docker.com/build/building/multi-stage/
+[1] Docker. [Multi-stage builds](https://docs.docker.com/build/building/multi-stage/).
 
-[2] Docker: Control startup and shutdown order in Compose.
-https://docs.docker.com/compose/how-tos/startup-order/
+[2] Docker. [Control startup and shutdown order in Compose](https://docs.docker.com/compose/how-tos/startup-order/).
 
-Measurement evidence: evidence/t02-image-sizes.txt.
+My image-size measurements: `evidence/t02-image-sizes.txt`.
